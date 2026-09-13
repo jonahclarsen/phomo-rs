@@ -27,6 +27,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Upstream library tests (no skips)
         run: cargo test --locked --no-fail-fast -p phomo --features=parallel,progress_bar
+      - name: Upstream CLI tests (no skips)
+        if: ${{ !cancelled() }}
+        run: cargo test --locked --no-fail-fast -p phomo-cli
   build:
     if: github.repository == 'jonahclarsen/phomo-rs'
     strategy:
@@ -66,7 +69,13 @@ jobs:
           --skip build_mosaic_match_master_to_tiles
       - name: Test CLI
         if: ${{ !cancelled() }}
-        run: cargo test --locked --release --no-fail-fast -p phomo-cli
+        # The 8 exact-pixel CLI goldens depend on read_dir() tile order (filesystem-specific); the shipped-binary
+        # smoke test below re-checks all of those modes with upstream's mosaic-test tolerance instead.
+        run: >-
+          cargo test --locked --release --no-fail-fast -p phomo-cli --
+          --skip build_mosaic_cropped --skip build_mosaic_resized --skip build_mosaic_repeats
+          --skip build_mosaic_greedy --skip build_mosaic_auction --skip build_mosaic_equalized
+          --skip build_mosaic_transfer_
       - name: Build macOS universal binary
         if: runner.os == 'macOS'
         env:
@@ -93,22 +102,25 @@ jobs:
         run: |
           exe=out/phomo; [ "$RUNNER_OS" = Windows ] && exe=out/phomo.exe
           "$exe" --version | tr -d '\r' | grep -Fx "phomo-cli $CLI_VERSION"
-          data=phomo-cli/tests/data
-          for args in "--resize-tiles mosaic_resized_tiles" "--crop-tiles mosaic_cropped_tiles" "--resize-tiles --solver=auction mosaic_auction"; do
-            set -- $args; golden="${@: -1}"; flags=("${@:1:$#-1}")
-            "$exe" "$data/master.png" "$data/faces" "out/$golden.png" "${flags[@]}"
-            python3 .github/scripts/png-rgb-equal.py "out/$golden.png" "$data/$golden.png"
-          done
+          bash .github/scripts/smoke-render.sh "$exe" "out/smoke-$RUNNER_OS"
       - name: Smoke test x86_64 slice under Rosetta
         if: runner.os == 'macOS'
         run: |
           if softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 && arch -x86_64 /usr/bin/true; then
             arch -x86_64 out/phomo --version | grep -Fx "phomo-cli $CLI_VERSION"
-            arch -x86_64 out/phomo phomo-cli/tests/data/master.png phomo-cli/tests/data/faces out/x86_64.png --resize-tiles
-            python3 .github/scripts/png-rgb-equal.py out/x86_64.png phomo-cli/tests/data/mosaic_resized_tiles.png
+            bash .github/scripts/smoke-render.sh "arch -x86_64 out/phomo" out/smoke-macOS-x86_64
+            for f in out/smoke-macOS-x86_64/*.png; do
+              python3 .github/scripts/png-rgb-equal.py "$f" "out/smoke-macOS/$(basename "$f")" --tolerance 2
+            done
           else
             echo "::warning::Rosetta unavailable; x86_64 slice verified with lipo/vtool only"
           fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: smoke-renders-${{ runner.os }}
+          path: out/smoke-*
+          if-no-files-found: warn
       - name: Sign and notarize macOS binary
         if: runner.os == 'macOS' && github.event_name == 'workflow_dispatch' && inputs.notarize
         env:
@@ -146,6 +158,18 @@ jobs:
           pattern: phomo-cli-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: smoke-renders-*
+          path: renders
+      - name: Compare macOS and Windows renders (informational)
+        continue-on-error: true
+        run: |
+          find renders -name '*.png' | sort
+          find renders/smoke-renders-macOS -name '*.png' ! -path '*x86_64*' | sort | while read -r f; do
+            w="$(find renders/smoke-renders-Windows -name "$(basename "$f")" | head -1)"
+            python3 .github/scripts/png-rgb-equal.py "$f" "$w" --report
+          done
       - name: Assemble combined package
         env:
           NOTARIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.notarize }}

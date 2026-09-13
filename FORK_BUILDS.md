@@ -35,6 +35,10 @@ gh run download <id> -n release-package
   - `build_mosaic_match_master_to_tiles` in `phomo/tests/mosaic.rs` (final mosaic vs `mosaic_16_16_match_master_to_tiles.png`). The other 8 mosaic tests pass.
   - The non-blocking `linux-parity` job runs upstream's full test command without skips, for comparison.
   - Don't regenerate the goldens here; that's an upstream decision.
+- `read_images_from_dir*` loads tiles in `read_dir()` order, which differs between filesystems (ext4, APFS, NTFS).
+  - Upstream's 8 exact-pixel CLI golden tests (`build_mosaic_cropped`, `_resized`, `_repeats`, `_greedy`, `_auction`, `_equalized`, `_transfer_*`) fail on macOS and Windows. Upstream's `ci.yml` never ran them ("cli tests don't run").
+  - The fork skips those 8. `.github/scripts/smoke-render.sh` instead renders all 9 CLI modes with the shipped binaries, using upstream's mosaic-test tolerance (mean abs diff ≤ 2).
+  - The package job prints macOS vs Windows render differences for information.
 - `phomo-cli/build.rs` regenerates `phomo-cli/completions/` on every build.
 - Secrets (`SIGNING_CERTIFICATE_P12`, `P12_PASSWORD`, `NOTARY_API_KEY_P8` as base64, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`) are repository Actions secrets. Signing only runs on `workflow_dispatch`, never for pull requests.
 - The fork is public: never commit Adobe SDK or proprietary licensing files here. The CLI needs neither.
