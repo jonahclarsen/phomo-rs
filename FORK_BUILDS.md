@@ -30,6 +30,9 @@ gh run download <id> -n release-package
 - Apple cannot staple a plain Mach-O executable or a ZIP. The notarization ticket lives only on Apple's servers, and Gatekeeper fetches it online on first launch.
   - Check a download with `codesign --verify --strict --check-notarization -R=notarized Mac/phomo`.
 - `phomo-cli/tests/data/faces` is a git symlink. Windows checkouts turn it into a text file, so CI copies the directory first.
+- `phomo::color_match::tests::test_match_palette_with_real_images` fails against its committed golden `phomo/tests/data/match/matched.png` on Linux, macOS and Windows.
+  - Upstream's own `ci.yml` at c3ecff1 fails the same way, while the other 31 library tests pass.
+  - The fork workflow skips only that test. Don't regenerate the golden here; that's an upstream decision.
 - `phomo-cli/build.rs` regenerates `phomo-cli/completions/` on every build.
 - Secrets (`SIGNING_CERTIFICATE_P12`, `P12_PASSWORD`, `NOTARY_API_KEY_P8` as base64, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`) are repository Actions secrets. Signing only runs on `workflow_dispatch`, never for pull requests.
 - The fork is public: never commit Adobe SDK or proprietary licensing files here. The CLI needs neither.
