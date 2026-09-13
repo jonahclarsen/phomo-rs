@@ -19,7 +19,9 @@ xcrun lipo "$stage/Mac/phomo" -verify_arch arm64 x86_64
 "$stage/Mac/phomo" --version | grep -Fx "phomo-cli $version"
 if [[ "$require_notarized" == true ]]; then
     codesign --verify --strict --check-notarization -R='notarized' --verbose=2 "$stage/Mac/phomo"
-    codesign -dv "$stage/Mac/phomo" 2>&1 | grep -F 'Authority=Developer ID Application: Gabgren 2000 Inc. (9TJ9D565BJ)'
+    codesign -dvv "$stage/Mac/phomo" 2>&1 | grep -F 'Authority=Developer ID Application: Gabgren 2000 Inc. (9TJ9D565BJ)'
+    codesign -dvv "$stage/Mac/phomo" 2>&1 | grep -F 'flags=0x10000(runtime)'
+    spctl -a -vvv -t install "$stage/Mac/phomo" 2>&1 | tee /dev/stderr | grep -F 'source=Notarized Developer ID'
 fi
 archive="release-dist/phomo-cli_v${version}.zip"
 ditto -c -k --keepParent "$stage" "$archive"
