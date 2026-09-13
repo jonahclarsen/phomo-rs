@@ -1,0 +1,143 @@
+name: Fork CLI binaries
+# macOS universal + Windows x64 builds of the phomo CLI for jonahclarsen/phomo-rs.
+# Upstream publishing (release-please, crates.io, npm) stays in ci.yml and only runs for loiccoyle.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      notarize:
+        description: Developer ID sign and notarize the macOS binary
+        type: boolean
+        default: true
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  build:
+    if: github.repository == 'jonahclarsen/phomo-rs'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Materialize symlinked CLI test data on Windows
+        if: runner.os == 'Windows'
+        run: |
+          if [ ! -d phomo-cli/tests/data/faces ]; then
+            rm -f phomo-cli/tests/data/faces
+            cp -R phomo/tests/data/mosaic/faces phomo-cli/tests/data/faces
+          fi
+          test "$(ls phomo-cli/tests/data/faces | wc -l)" -eq 1000
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          if [ "$RUNNER_OS" = macOS ]; then rustup target add aarch64-apple-darwin x86_64-apple-darwin; fi
+          rustc --version
+      - uses: Swatinem/rust-cache@v2
+      - name: Read CLI version
+        run: |
+          version="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "phomo-cli"))')"
+          echo "CLI_VERSION=$version" >> "$GITHUB_ENV"
+          echo "phomo-cli $version"
+      - name: Test library
+        run: cargo test --locked --release -p phomo --features=parallel,progress_bar
+      - name: Test CLI
+        run: cargo test --locked --release -p phomo-cli
+      - name: Build macOS universal binary
+        if: runner.os == 'macOS'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: |
+          cargo build --locked --release -p phomo-cli --target aarch64-apple-darwin
+          cargo build --locked --release -p phomo-cli --target x86_64-apple-darwin
+          mkdir -p out
+          xcrun lipo -create -output out/phomo \
+            target/aarch64-apple-darwin/release/phomo target/x86_64-apple-darwin/release/phomo
+          xcrun lipo out/phomo -verify_arch arm64 x86_64
+          xcrun vtool -show-build out/phomo
+          test "$(xcrun vtool -show-build out/phomo | grep -c 'minos 11.0')" -eq 2
+      - name: Build Windows x64 binary
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cargo build --locked --release -p phomo-cli --target x86_64-pc-windows-msvc
+          mkdir -p out
+          cp target/x86_64-pc-windows-msvc/release/phomo.exe out/phomo.exe
+          if grep -qai 'vcruntime140' out/phomo.exe; then echo 'unexpected VC runtime DLL dependency'; exit 1; fi
+      - name: Smoke test shipped binary
+        run: |
+          exe=out/phomo; [ "$RUNNER_OS" = Windows ] && exe=out/phomo.exe
+          "$exe" --version | tr -d '\r' | grep -Fx "phomo-cli $CLI_VERSION"
+          data=phomo-cli/tests/data
+          for args in "--resize-tiles mosaic_resized_tiles" "--crop-tiles mosaic_cropped_tiles" "--resize-tiles --solver=auction mosaic_auction"; do
+            set -- $args; golden="${@: -1}"; flags=("${@:1:$#-1}")
+            "$exe" "$data/master.png" "$data/faces" "out/$golden.png" "${flags[@]}"
+            python3 .github/scripts/png-rgb-equal.py "out/$golden.png" "$data/$golden.png"
+          done
+      - name: Smoke test x86_64 slice under Rosetta
+        if: runner.os == 'macOS'
+        run: |
+          if softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 && arch -x86_64 /usr/bin/true; then
+            arch -x86_64 out/phomo --version | grep -Fx "phomo-cli $CLI_VERSION"
+            arch -x86_64 out/phomo phomo-cli/tests/data/master.png phomo-cli/tests/data/faces out/x86_64.png --resize-tiles
+            python3 .github/scripts/png-rgb-equal.py out/x86_64.png phomo-cli/tests/data/mosaic_resized_tiles.png
+          else
+            echo "::warning::Rosetta unavailable; x86_64 slice verified with lipo/vtool only"
+          fi
+      - name: Sign and notarize macOS binary
+        if: runner.os == 'macOS' && github.event_name == 'workflow_dispatch' && inputs.notarize
+        env:
+          SIGNING_CERTIFICATE_P12: ${{ secrets.SIGNING_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          bash .github/scripts/notarize-cli.sh out/phomo
+          out/phomo --version
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent out/phomo dist/phomo-macos.zip
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive out/phomo.exe dist/phomo-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phomo-cli-${{ runner.os }}
+          path: dist/*.zip
+          if-no-files-found: error
+  package:
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: phomo-cli-*
+          path: dist
+          merge-multiple: true
+      - name: Assemble combined package
+        env:
+          NOTARIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.notarize }}
+        run: |
+          version="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "phomo-cli"))')"
+          bash .github/scripts/package-release.sh "$version" "$NOTARIZED"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: release-dist/*
+          if-no-files-found: error
