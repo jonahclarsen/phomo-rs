@@ -2,6 +2,7 @@
 # Combine the CI-built macOS universal and Windows x64 phomo CLI into one ZIP.
 # Usage: package-release.sh <cli-version> [require-notarized]
 set -euo pipefail
+trap 'echo "package-release.sh: failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/../.."
 version="$1"
 require_notarized="${2:-false}"

@@ -62,6 +62,7 @@ if __name__ == '__main__':
     mean = sum(abs(a - b) for a, b in zip(left, right)) / len(left)
     verdict = 'identical' if left == right else f'mean abs diff {mean:.4f}'
     ok = mean <= tolerance if tolerance else left == right
-    print(f'{"OK  " if ok else "FAIL"} {verdict} (tolerance {tolerance}): {paths[0]} vs {paths[1]}')
+    label = 'INFO' if report else ('OK  ' if ok else 'FAIL')
+    print(f'{label} {verdict}' + ('' if report else f' (tolerance {tolerance})') + f': {paths[0]} vs {paths[1]}')
     if not ok and not report:
         raise SystemExit(1)

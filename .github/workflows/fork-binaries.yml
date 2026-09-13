@@ -136,7 +136,8 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist
-          ditto -c -k --keepParent out/phomo dist/phomo-macos.zip
+          (cd out && ditto -c -k phomo ../dist/phomo-macos.zip)
+          zipinfo -1 dist/phomo-macos.zip | grep -Fx phomo
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
