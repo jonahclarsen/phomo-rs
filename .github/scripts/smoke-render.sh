@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Render every CLI golden mode with a shipped phomo binary and compare against phomo-cli/tests/data.
-# Uses upstream's mosaic-test tolerance (mean abs diff <= 2) because tile order follows read_dir(),
-# which differs between filesystems. Reports all modes before failing.
+# Render every CLI golden mode with a shipped phomo binary.
+# Fatal: a render fails, or its PNG is unreadable or has different dimensions from phomo-cli/tests/data.
+# Informational: pixel difference from the golden. Upstream's CLI goldens fail the same way on
+# Linux/macOS/Windows because tile order follows read_dir() (see FORK_BUILDS.md).
 # Usage: smoke-render.sh "<phomo command>" <output dir>
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 read -r -a exe <<< "$1"
 out="$2"
 data=phomo-cli/tests/data
-tolerance=2
 mkdir -p "$out"
 modes=(
   "mosaic_cropped_tiles|--crop-tiles"
@@ -28,8 +28,8 @@ for mode in "${modes[@]}"; do
   if ! "${exe[@]}" "$data/master.png" "$data/faces" "$out/$golden.png" "${flags[@]}"; then
     echo "FAIL render $golden"; failures=$((failures + 1)); continue
   fi
-  python3 .github/scripts/png-rgb-equal.py "$out/$golden.png" "$data/$golden.png" --tolerance "$tolerance" \
+  python3 .github/scripts/png-rgb-equal.py "$out/$golden.png" "$data/$golden.png" --report \
     || failures=$((failures + 1))
 done
-echo "$failures of ${#modes[@]} modes failed"
+echo "$failures of ${#modes[@]} modes failed to render a valid, correctly sized mosaic"
 exit $((failures > 0))

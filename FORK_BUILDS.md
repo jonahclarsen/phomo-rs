@@ -35,10 +35,22 @@ gh run download <id> -n release-package
   - `build_mosaic_match_master_to_tiles` in `phomo/tests/mosaic.rs` (final mosaic vs `mosaic_16_16_match_master_to_tiles.png`). The other 8 mosaic tests pass.
   - The non-blocking `linux-parity` job runs upstream's full test command without skips, for comparison.
   - Don't regenerate the goldens here; that's an upstream decision.
-- `read_images_from_dir*` loads tiles in `read_dir()` order, which differs between filesystems (ext4, APFS, NTFS).
-  - Upstream's 8 exact-pixel CLI golden tests (`build_mosaic_cropped`, `_resized`, `_repeats`, `_greedy`, `_auction`, `_equalized`, `_transfer_*`) fail on macOS and Windows. Upstream's `ci.yml` never ran them ("cli tests don't run").
-  - The fork skips those 8. `.github/scripts/smoke-render.sh` instead renders all 9 CLI modes with the shipped binaries, using upstream's mosaic-test tolerance (mean abs diff ≤ 2).
-  - The package job prints macOS vs Windows render differences for information.
+- Upstream's 8 exact-pixel CLI golden tests fail on Linux, macOS and Windows alike: `build_mosaic_cropped`, `_resized`, `_repeats`, `_greedy`, `_auction`, `_equalized` and `_transfer_*`.
+  - `linux-parity` runs upstream's own unskipped `cargo test -p phomo-cli`. Upstream's `ci.yml` never ran these ("cli tests don't run").
+  - `read_images_from_dir*` loads tiles in `read_dir()` order, which depends on the filesystem.
+  - Measured mean abs diff against the goldens (macOS / Windows, run 34761599298):
+    - cropped and resized: 2.4 / 2.8
+    - repeats: 1.3 / 1.7
+    - greedy: 0.14 / 0.09
+    - auction: 0.17 / 0.05
+    - equalized: 5.4 / 5.1
+    - transfer tiles to master: 19.0 / 23.0
+    - transfer master to tiles: 3.0 / 2.4
+    - `-g 10,10`: identical
+  - The fork skips those 8 tests. `.github/scripts/smoke-render.sh` renders all 9 CLI modes with the shipped binaries.
+    - It fails on a render error, an unreadable PNG or wrong dimensions.
+    - It prints golden pixel differences for information.
+  - On macOS the x86_64 slice (Rosetta) must match the arm64 render within a mean abs diff of 2. The package job prints macOS vs Windows differences.
 - `phomo-cli/build.rs` regenerates `phomo-cli/completions/` on every build.
 - Secrets (`SIGNING_CERTIFICATE_P12`, `P12_PASSWORD`, `NOTARY_API_KEY_P8` as base64, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`) are repository Actions secrets. Signing only runs on `workflow_dispatch`, never for pull requests.
 - The fork is public: never commit Adobe SDK or proprietary licensing files here. The CLI needs neither.

@@ -69,8 +69,8 @@ jobs:
           --skip build_mosaic_match_master_to_tiles
       - name: Test CLI
         if: ${{ !cancelled() }}
-        # The 8 exact-pixel CLI goldens depend on read_dir() tile order (filesystem-specific); the shipped-binary
-        # smoke test below re-checks all of those modes with upstream's mosaic-test tolerance instead.
+        # The 8 exact-pixel CLI goldens fail on Linux/macOS/Windows (read_dir() tile order; see linux-parity).
+        # The shipped-binary smoke test below still renders every one of those modes.
         run: >-
           cargo test --locked --release --no-fail-fast -p phomo-cli --
           --skip build_mosaic_cropped --skip build_mosaic_resized --skip build_mosaic_repeats
